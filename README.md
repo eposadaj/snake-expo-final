@@ -47,7 +47,7 @@ graph TD
     subgraph "Capa del Motor de Juego"
         Matchmaker -->|Invocación Asíncrona| GameLoop["Lambda GameLoop Handler"]
         GameLoop <-->|Leer Entradas / Escribir Estado| DynamoMatches
-        GameLoop -->|Difundir Estado (200ms)| APIG
+        GameLoop -->|Difundir Estado 200ms| APIG
         APIG -->|Actualizar UI| User
     end
 ```
