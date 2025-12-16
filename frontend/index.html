@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AWS Serverless Snake 🐍</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #1a1a1a;
+            color: #ecf0f1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            overflow: hidden;
+        }
+        h1 { margin-bottom: 10px; color: #f1c40f; }
+        #game-container {
+            position: relative;
+            box-shadow: 0 0 50px rgba(0,0,0,0.8);
+            border: 4px solid #34495e;
+            border-radius: 8px;
+        }
+        canvas {
+            display: block;
+            background-color: #2c3e50;
+        }
+        #ui-layer {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            background: rgba(0,0,0,0.7);
+            transition: opacity 0.3s;
+        }
+        .hidden { opacity: 0; pointer-events: none; }
+        button {
+            padding: 15px 30px;
+            font-size: 1.5rem;
+            background-color: #27ae60;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            width: 200px;
+            transition: transform 0.1s;
+        }
+        button:hover { transform: scale(1.05); background-color: #2ecc71; }
+        button:active { transform: scale(0.95); }
+        button:disabled { background-color: #7f8c8d; cursor: not-allowed; }
+        
+        #status-text {
+            margin-top: 20px;
+            font-size: 1.2rem;
+            color: #bdc3c7;
+            text-align: center;
+        }
+        
+        .score-board {
+            display: flex;
+            justify-content: space-between;
+            width: 800px;
+            margin-bottom: 10px;
+            font-size: 1.2rem;
+            font-weight: bold;
+        }
+        .p1-score { color: #e74c3c; } /* Rojo */
+        .p2-score { color: #3498db; } /* Azul */
+    </style>
+</head>
+<body>
+
+    <h1>AWS Serverless Snake 🐍</h1>
+
+    <div class="score-board">
+        <span class="p1-score">Jugador 1: <span id="s1">0</span></span>
+        <span class="p2-score">Jugador 2: <span id="s2">0</span></span>
+    </div>
+
+    <div id="game-container">
+        <canvas id="gameCanvas" width="800" height="800"></canvas>
+        
+        <div id="ui-layer">
+            <button id="btn-play">Jugar</button>
+            <div id="status-text">Conectando al servidor...</div>
+        </div>
+    </div>
+
+    <script>
+        // --- CONFIGURACIÓN ---
+        // REEMPLAZAR ESTA URL CON TU WSS ENDPOINT DE API GATEWAY
+        const WSS_URL = "wss://g87vsd43u3.execute-api.us-east-1.amazonaws.com/prod"; 
+        // ---------------------
+
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const uiLayer = document.getElementById('ui-layer');
+        const btnPlay = document.getElementById('btn-play');
+        const statusText = document.getElementById('status-text');
+        
+        let socket;
+        let matchId = null;
+        let isPlaying = false;
+        const GRID_SIZE = 20; // Tamaño de celda en px (800 / 40 = 20)
+        const TILE_COUNT = 40; // 40x40 grid
+
+        function connect() {
+            console.log("Conectando a WebSocket...");
+            btnPlay.disabled = true;
+            
+            socket = new WebSocket(WSS_URL);
+
+            socket.onopen = () => {
+                console.log("WebSocket Conectado.");
+                statusText.innerText = "¡Conectado! Dale a Jugar.";
+                btnPlay.disabled = false;
+                btnPlay.innerText = "Buscar Partida";
+            };
+
+            socket.onmessage = (event) => {
+                try {
+                    const msg = JSON.parse(event.data);
+                    handleServerMessage(msg);
+                } catch (e) {
+                    console.error("Error parseando mensaje:", e);
+                }
+            };
+
+            socket.onclose = () => {
+                console.log("Desconectado.");
+                statusText.innerText = "Desconectado. Recargando...";
+                setTimeout(() => location.reload(), 3000);
+            };
+            
+            socket.onerror = (err) => {
+                console.error("WS Error:", err);
+                statusText.innerText = "Error de Conexión.";
+            };
+        }
+
+        function handleServerMessage(msg) {
+            // Tipos de mensajes: matchFound, gameState
+            
+            if (msg.type === 'matchFound') {
+                matchId = msg.matchId;
+                statusText.innerText = "¡Partida Encontrada! Iniciando...";
+                console.log("Match ID:", matchId);
+                // Ocultar UI en breve
+                setTimeout(() => {
+                    uiLayer.classList.add('hidden');
+                    isPlaying = true;
+                }, 1000);
+            }
+            else if (msg.type === 'gameState') {
+                renderGame(msg.state);
+            }
+            else if (msg.message === 'Match Found!') {
+                // Compatibilidad con versiones viejas del backend
+                matchId = msg.matchId;
+                statusText.innerText = "¡Partida Encontrada! (Legacy)";
+                setTimeout(() => {
+                    uiLayer.classList.add('hidden');
+                    isPlaying = true;
+                }, 1000);
+            }
+        }
+
+        function renderGame(state) {
+            // Limpiar canvas
+            ctx.fillStyle = '#2c3e50';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Dibujar Comida
+            if (state.food) {
+                ctx.fillStyle = '#f1c40f'; // Queso/Oro
+                ctx.beginPath();
+                ctx.arc(
+                    state.food.x * GRID_SIZE + GRID_SIZE/2, 
+                    state.food.y * GRID_SIZE + GRID_SIZE/2, 
+                    GRID_SIZE/2 - 2, 0, Math.PI * 2
+                );
+                ctx.fill();
+            }
+
+            // Dibujar Jugadores
+            Object.values(state.players).forEach(player => {
+                if (!player.alive) return; // No dibujar muertos
+                
+                ctx.fillStyle = player.color || '#ecf0f1';
+                player.body.forEach((segment, index) => {
+                    // Cabeza un poco distinta
+                    if (index === 0) ctx.globalAlpha = 1.0;
+                    else ctx.globalAlpha = 0.8;
+                    
+                    ctx.fillRect(
+                        segment.x * GRID_SIZE + 1, 
+                        segment.y * GRID_SIZE + 1, 
+                        GRID_SIZE - 2, 
+                        GRID_SIZE - 2
+                    );
+                });
+                ctx.globalAlpha = 1.0;
+                
+                // Actualizar puntajes (Hack simple)
+                // Asumimos p1 es el primero que llegue... esto es solo visual
+                // Idealmente el ID define el slot.
+            });
+        }
+
+        // --- CONTROLES ---
+        btnPlay.addEventListener('click', () => {
+            if (!socket || socket.readyState !== WebSocket.OPEN) return;
+            
+            // Enviar JoinQueue
+            const payload = JSON.stringify({ action: 'joinQueue' });
+            socket.send(payload);
+            
+            btnPlay.disabled = true;
+            statusText.innerText = "Buscando oponente (Revisando Cola)...";
+            btnPlay.innerText = "Buscando...";
+        });
+
+        document.addEventListener('keydown', (e) => {
+            if (!isPlaying || !matchId) return;
+            
+            let dir = null;
+            if (e.key === 'ArrowUp') dir = 'UP';
+            else if (e.key === 'ArrowDown') dir = 'DOWN';
+            else if (e.key === 'ArrowLeft') dir = 'LEFT';
+            else if (e.key === 'ArrowRight') dir = 'RIGHT';
+
+            if (dir) {
+                // Enviar Movimiento
+                const payload = JSON.stringify({
+                    action: 'playerMove',
+                    matchId: matchId,
+                    direction: dir
+                });
+                socket.send(payload);
+            }
+        });
+
+        // Iniciar
+        connect();
+
+    </script>
+</body>
+</html>
