@@ -31,21 +31,21 @@ El flujo de datos asegura una comunicación de baja latencia mientras mantiene l
 
 ```mermaid
 graph TD
-    User((Jugador)) -->|Conexión WebSocket| APIG[API Gateway (WSS)]
+    User(("Jugador")) -->|Conexión WebSocket| APIG["API Gateway (WSS)"]
     
     subgraph "Capa de Eventos"
-        APIG -->|Conectar/Desconectar| ConnectionHandler[Lambda ConnectionHandler]
-        APIG -->|Acción de Entrada| DynamoDB
+        APIG -->|Conectar/Desconectar| ConnectionHandler["Lambda ConnectionHandler"]
+        APIG -->|Acción de Entrada| DynamoDB["DynamoDB"]
     end
     
     subgraph "Capa de Matchmaking"
-        ConnectionHandler -->|Unirse a Cola| SQS[Amazon SQS]
-        SQS -->|Disparador| Matchmaker[Lambda Matchmaker]
-        Matchmaker -->|Crear Partida| DynamoMatches[(DynamoDB Matches)]
+        ConnectionHandler -->|Unirse a Cola| SQS["Amazon SQS"]
+        SQS -->|Disparador| Matchmaker["Lambda Matchmaker"]
+        Matchmaker -->|Crear Partida| DynamoMatches[("DynamoDB Matches")]
     end
     
     subgraph "Capa del Motor de Juego"
-        Matchmaker -->|Invocación Asíncrona| GameLoop[Lambda GameLoop Handler]
+        Matchmaker -->|Invocación Asíncrona| GameLoop["Lambda GameLoop Handler"]
         GameLoop <-->|Leer Entradas / Escribir Estado| DynamoMatches
         GameLoop -->|Difundir Estado (200ms)| APIG
         APIG -->|Actualizar UI| User
